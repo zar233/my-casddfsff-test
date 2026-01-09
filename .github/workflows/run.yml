@@ -1,8 +1,8 @@
-name: CF-Auto-Speedtest
+name: CF-Super-Speedtest-Fixed
 on:
   schedule:
-    - cron: '0 20 * * *' # 每天北京时间凌晨4点运行
-  workflow_dispatch: # 允许手动运行
+    - cron: '0 20 * * *'
+  workflow_dispatch: 
 
 jobs:
   build:
@@ -13,32 +13,32 @@ jobs:
 
       - name: Run Speedtest
         run: |
-          # 1. 下载工具和国家数据库
+          # 1. 下载工具
           curl -sL https://github.com/XIU2/CloudflareSpeedTest/releases/download/v2.2.5/CloudflareST_linux_amd64.tar.gz -o CloudflareST.tar.gz
           tar -zxf CloudflareST.tar.gz
           chmod +x CloudflareST
-          # 必须下载此文件，否则无法识别 HKG/SJC 等名称
           curl -sL https://raw.githubusercontent.com/XIU2/CloudflareSpeedTest/master/cfst_itinerary.txt -o cfst_itinerary.txt || true
           
-          # 2. 聚合你提供的精品源
+          # 2. 聚合外部源 (旧源 + 你今天给的新精品源)
           touch temp_ips.txt
           curl -sL "https://cf.001315.xyz/CloudFlareYes" >> temp_ips.txt || true
           curl -sL "https://cf.001315.xyz/ip.164746.xyz" >> temp_ips.txt || true
-          curl -sL "https://cf.001315.xyz/CM/ct" >> temp_ips.txt || true
           curl -sL "https://cf.001315.xyz/CM/cmcc" >> temp_ips.txt || true
+          curl -sL "https://addressesapi.090227.xyz/CloudFlareYes" >> temp_ips.txt || true
           
-          # 3. 提取合法 IP 并去重
+          # 3. 清洗并去重
           grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" temp_ips.txt | sort -u > my_targets.txt
           
-          # 4. 执行测速 (放宽门槛，确保数量)
-          # -sl 0.1: 只要能跑通就留着，确保凑够 40 个
-          # -tl 250: 针对移动端放宽延迟限制
-          ./CloudflareST -f my_targets.txt -tl 250 -dn 40 -sl 0.1 -p 1
+          # 4. 执行测速 (放宽 -sl 门槛到 0.1，确保凑够 40 个)
+          if [ -s my_targets.txt ]; then
+            ./CloudflareST -f my_targets.txt -tl 300 -dn 40 -sl 0.1 -p 1
+          else
+            ./CloudflareST -tl 300 -dn 40 -sl 0.1 -p 1
+          fi
           
-          # 5. 【核心修复】格式化输出
-          # 如果 $6 为空或 0.00，强行命名为 CM-Node，防止订阅脚本过滤
+          # 5. 生成结果 (修正备注名，防止订阅脚本过滤)
           awk -F, 'NR>1 {
-              remark = ($6 == "" || $6 == "0.00") ? "CM-Node" : $6;
+              remark = ($6 == "" || $6 == "0.00") ? "Fixed-Node" : $6;
               print $1":443#"remark
           }' result.csv > ip.txt
 
@@ -47,5 +47,5 @@ jobs:
           git config --global user.email "actions@github.com"
           git config --global user.name "GitHub Actions"
           git add ip.txt
-          git commit -m "Update IPs with naming fix" || exit 0
+          git commit -m "Auto update IP with stability fix" || exit 0
           git push
