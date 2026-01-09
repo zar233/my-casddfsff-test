@@ -1,4 +1,4 @@
-name: CF-Super-Speedtest-Fixed
+name: CF-IP-Collector
 on:
   schedule:
     - cron: '0 20 * * *'
@@ -11,41 +11,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run Speedtest
+      - name: Collect IPs
         run: |
-          # 1. 下载工具
-          curl -sL https://github.com/XIU2/CloudflareSpeedTest/releases/download/v2.2.5/CloudflareST_linux_amd64.tar.gz -o CloudflareST.tar.gz
-          tar -zxf CloudflareST.tar.gz
-          chmod +x CloudflareST
-          curl -sL https://raw.githubusercontent.com/XIU2/CloudflareSpeedTest/master/cfst_itinerary.txt -o cfst_itinerary.txt || true
+          # 1. 创建临时文件
+          touch all_ips.txt
           
-          # 2. 聚合外部源 (旧源 + 你今天给的新精品源)
-          touch temp_ips.txt
-          curl -sL "https://cf.001315.xyz/CloudFlareYes" >> temp_ips.txt || true
-          curl -sL "https://cf.001315.xyz/ip.164746.xyz" >> temp_ips.txt || true
-          curl -sL "https://cf.001315.xyz/CM/cmcc" >> temp_ips.txt || true
-          curl -sL "https://addressesapi.090227.xyz/CloudFlareYes" >> temp_ips.txt || true
+          # 2. 暴力抓取你提供的所有源 (增加更多稳定源)
+          echo "开始抓取精品源..."
+          curl -sL "https://cf.001315.xyz/CloudFlareYes" >> all_ips.txt || true
+          curl -sL "https://cf.001315.xyz/ip.164746.xyz" >> all_ips.txt || true
+          curl -sL "https://cf.001315.xyz/CM/ct" >> all_ips.txt || true
+          curl -sL "https://cf.001315.xyz/CM/cmcc" >> all_ips.txt || true
+          curl -sL "https://addressesapi.090227.xyz/CloudFlareYes" >> all_ips.txt || true
+          curl -sL "https://ipdb.api.030101.xyz/?type=bestcf" >> all_ips.txt || true
           
-          # 3. 清洗并去重
-          grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" temp_ips.txt | sort -u > my_targets.txt
+          # 3. 提取纯 IP 格式并去重
+          # 这步确保文件里只有干净的 IP
+          grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" all_ips.txt | sort -u > unique_ips.txt
           
-          # 4. 执行测速 (放宽 -sl 门槛到 0.1，确保凑够 40 个)
-          if [ -s my_targets.txt ]; then
-            ./CloudflareST -f my_targets.txt -tl 300 -dn 40 -sl 0.1 -p 1
-          else
-            ./CloudflareST -tl 300 -dn 40 -sl 0.1 -p 1
-          fi
+          # 4. 直接转换成订阅格式 (强制命名为 CM-Node)
+          # 这样跳过了测速工具，直接把抓到的几百个 IP 全部列出来
+          awk '{print $1":443#CM-Node"}' unique_ips.txt > ip.txt
           
-          # 5. 生成结果 (修正备注名，防止订阅脚本过滤)
-          awk -F, 'NR>1 {
-              remark = ($6 == "" || $6 == "0.00") ? "Fixed-Node" : $6;
-              print $1":443#"remark
-          }' result.csv > ip.txt
+          echo "抓取完成，总计 IP 数量：$(wc -l < ip.txt)"
 
       - name: Commit and Push
         run: |
           git config --global user.email "actions@github.com"
           git config --global user.name "GitHub Actions"
           git add ip.txt
-          git commit -m "Auto update IP with stability fix" || exit 0
+          git commit -m "Collect all IPs without speedtest" || exit 0
           git push
